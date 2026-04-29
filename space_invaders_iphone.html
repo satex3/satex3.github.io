@@ -1,0 +1,481 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<title>Space Invaders</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; -webkit-tap-highlight-color: transparent; }
+  html {
+    width: 100%;
+    height: 100%;
+    overflow: hidden;
+    background: #0a0a14;
+  }
+  body {
+    background: #0a0a14;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    width: 100%;
+    height: 100vh;
+    height: var(--app-height, 100vh);
+    position: fixed;
+    inset: 0;
+    overflow: hidden;
+    overscroll-behavior: none;
+    user-select: none;
+    -webkit-user-select: none;
+    -webkit-touch-callout: none;
+    padding-top: env(safe-area-inset-top, 0px);
+    padding-bottom: env(safe-area-inset-bottom, 0px);
+    touch-action: none;
+  }
+
+  #hud {
+    display: flex;
+    gap: 1.5rem;
+    padding: 8px 16px 6px;
+    font-family: monospace;
+    font-size: 14px;
+    color: #666;
+    width: 100%;
+    justify-content: center;
+    flex: 0 0 auto;
+    white-space: nowrap;
+  }
+  #hud span { color: #fff; font-weight: bold; }
+
+  #canvas-wrap {
+    position: relative;
+    flex-shrink: 0;
+  }
+  canvas {
+    display: block;
+    background: #0a0a14;
+    border: 1px solid #222;
+    width: 100%;
+    height: 100%;
+  }
+
+  /* オーバーレイ（タイトル・ゲームオーバー） */
+  #overlay {
+    display: none;
+    position: absolute;
+    inset: 0;
+    background: rgba(10,10,20,0.88);
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 14px;
+  }
+  #overlay.show { display: flex; }
+  #ov-title {
+    font-family: monospace;
+    font-size: clamp(20px, 6vw, 32px);
+    font-weight: 700;
+    letter-spacing: 3px;
+    color: #4af;
+  }
+  #ov-title.gameover { color: #f64; }
+  #ov-sub  { font-family: monospace; font-size: 13px; color: #aaa; }
+  #ov-sub2 { font-family: monospace; font-size: 11px; color: #555; }
+  #startBtn {
+    margin-top: 8px;
+    padding: 12px 32px;
+    font-size: 16px;
+    font-family: monospace;
+    background: transparent;
+    color: #4af;
+    border: 1px solid #4af;
+    border-radius: 6px;
+    cursor: pointer;
+    -webkit-appearance: none;
+  }
+  #startBtn:active { background: rgba(68,170,255,0.15); }
+
+  /* タッチ操作エリア */
+  #controls {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    width: 100%;
+    padding: 10px 18px;
+    padding-left: calc(18px + env(safe-area-inset-left, 0px));
+    padding-right: calc(18px + env(safe-area-inset-right, 0px));
+    flex: 1 1 auto;
+    min-height: 92px;
+    max-height: 132px;
+  }
+  .ctrl-group { display: flex; gap: 12px; }
+
+  .btn {
+    width: 72px;
+    height: 72px;
+    flex: 0 0 auto;
+    border-radius: 50%;
+    border: 1.5px solid #333;
+    background: rgba(255,255,255,0.05);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 26px;
+    color: #aaa;
+    cursor: pointer;
+    -webkit-appearance: none;
+    touch-action: none;
+    -webkit-user-select: none;
+  }
+  .btn:active, .btn.pressed { background: rgba(255,255,255,0.15); border-color: #555; }
+
+  #btn-fire {
+    width: 80px;
+    height: 80px;
+    border-color: #f64;
+    color: #f64;
+    font-size: 13px;
+    font-family: monospace;
+    letter-spacing: 1px;
+  }
+  #btn-fire.pressed { background: rgba(255,100,68,0.2); }
+</style>
+</head>
+<body>
+
+<div id="hud">
+  Score: <span id="score">0</span>&nbsp;
+  Best: <span id="hi">0</span>&nbsp;
+  Lives: <span id="lives">3</span>
+</div>
+
+<div id="canvas-wrap">
+  <canvas id="gameCanvas"></canvas>
+  <div id="overlay" class="show">
+    <div id="ov-title">SPACE INVADERS</div>
+    <div id="ov-sub">Tap START to play</div>
+    <div id="ov-sub2"></div>
+    <button id="startBtn">[ START ]</button>
+  </div>
+</div>
+
+<div id="controls">
+  <div class="ctrl-group">
+    <div class="btn" id="btn-left">&#9664;</div>
+    <div class="btn" id="btn-right">&#9654;</div>
+  </div>
+  <div class="btn" id="btn-fire">FIRE</div>
+</div>
+
+<script>
+// ===== Canvas サイズをウィンドウに合わせる =====
+const canvas = document.getElementById('gameCanvas');
+const ctx = canvas.getContext('2d');
+const canvasWrap = document.getElementById('canvas-wrap');
+const hud = document.getElementById('hud');
+const controls = document.getElementById('controls');
+let canvasW = 0, canvasH = 0;
+let resizeTimer = 0;
+
+function viewportSize() {
+  const vv = window.visualViewport;
+  return {
+    width: Math.floor(vv ? vv.width : window.innerWidth),
+    height: Math.floor(vv ? vv.height : window.innerHeight)
+  };
+}
+
+function applyAppHeight() {
+  const vp = viewportSize();
+  document.documentElement.style.setProperty('--app-height', vp.height + 'px');
+}
+
+function resizeCanvas() {
+  applyAppHeight();
+  const vp      = viewportSize();
+  const hudH    = hud.offsetHeight;
+  const ctrlH   = controls.offsetHeight;
+  const availH  = Math.max(220, vp.height - hudH - ctrlH);
+  const availW  = Math.max(280, vp.width);
+  // 縦画面のiPhoneでは高さを使い切り、横画面では4:3に収める。
+  let W, H;
+  if(availH >= availW) {
+    W = Math.floor(availW);
+    H = Math.floor(availH);
+  } else if(availW / availH < 4/3) {
+    W = Math.floor(availW);
+    H = Math.floor(W * 3/4);
+  } else {
+    H = Math.floor(availH);
+    W = Math.floor(H * 4/3);
+  }
+  canvasW = W;
+  canvasH = H;
+  canvas.width  = W;
+  canvas.height = H;
+  canvasWrap.style.width  = W + 'px';
+  canvasWrap.style.height = H + 'px';
+}
+resizeCanvas();
+function scheduleResize() {
+  clearTimeout(resizeTimer);
+  resizeTimer = setTimeout(() => {
+    resizeCanvas();
+    if(state==='play') initLevel();
+  }, 80);
+}
+window.addEventListener('resize', scheduleResize);
+window.addEventListener('orientationchange', scheduleResize);
+if(window.visualViewport) window.visualViewport.addEventListener('resize', scheduleResize);
+document.addEventListener('touchmove', e => e.preventDefault(), { passive:false });
+
+const W = () => canvasW;
+const H = () => canvasH;
+
+// ===== 定数（60fps基準のpx/ms） =====
+const PLAYER_SPEED    = 4   / 16.67;
+const BULLET_SPEED    = 8   / 16.67;
+const INVBULLET_SPEED = 4   / 16.67;
+const BASE_INV_SPEED  = 0.4 / 16.67;
+const SHOOT_COOLDOWN  = 300; // ms
+
+// ===== 状態変数 =====
+let state = 'idle', score = 0, hiScore = 0, lives = 3;
+let player, bullets, invaders, invBullets, barriers;
+let invDir = 1, invSpeed = BASE_INV_SPEED;
+let invShootTimer = 0, invShootInterval = 1500;
+let shootCooldown = 0, animId, lastTime = 0;
+
+// ===== キーボード入力 =====
+const keys = {};
+document.addEventListener('keydown', e => { keys[e.code]=true; if(e.code==='Space') e.preventDefault(); });
+document.addEventListener('keyup',   e => { keys[e.code]=false; });
+
+// ===== タッチボタン =====
+const touchState = { left:false, right:false, fire:false };
+
+function bindBtn(id, prop) {
+  const el = document.getElementById(id);
+  const press = e => {
+    e.preventDefault();
+    touchState[prop]=true;
+    el.classList.add('pressed');
+    if(e.pointerId !== undefined && el.setPointerCapture) el.setPointerCapture(e.pointerId);
+  };
+  const release = e => {
+    e.preventDefault();
+    touchState[prop]=false;
+    el.classList.remove('pressed');
+  };
+  if(window.PointerEvent) {
+    el.addEventListener('pointerdown', press);
+    el.addEventListener('pointerup', release);
+    el.addEventListener('pointercancel', release);
+    el.addEventListener('pointerleave', release);
+  } else {
+    el.addEventListener('touchstart', press, { passive:false });
+    el.addEventListener('touchend', release, { passive:false });
+    el.addEventListener('touchcancel', release, { passive:false });
+    el.addEventListener('mousedown', press);
+    el.addEventListener('mouseup', release);
+    el.addEventListener('mouseleave', release);
+  }
+}
+bindBtn('btn-left',  'left');
+bindBtn('btn-right', 'right');
+bindBtn('btn-fire',  'fire');
+
+// ===== オーバーレイ制御 =====
+const overlay = document.getElementById('overlay');
+const ovTitle = document.getElementById('ov-title');
+const ovSub   = document.getElementById('ov-sub');
+const ovSub2  = document.getElementById('ov-sub2');
+const startBtn= document.getElementById('startBtn');
+let lastStartTap = 0;
+
+function showOverlay(title, cls, sub, sub2, btn) {
+  ovTitle.textContent=title; ovTitle.className=cls;
+  ovSub.textContent=sub; ovSub2.textContent=sub2;
+  overlay.classList.add('show');
+  startBtn.textContent=btn; startBtn.style.display='inline-block';
+}
+function hideOverlay() {
+  overlay.classList.remove('show');
+  startBtn.style.display='none';
+}
+
+function requestStart(e) {
+  if(e) e.preventDefault();
+  const now = Date.now();
+  if(now - lastStartTap < 250) return;
+  lastStartTap = now;
+  startGame();
+}
+startBtn.addEventListener('click', requestStart);
+startBtn.addEventListener('touchend', requestStart, { passive:false });
+
+// ===== ゲーム開始 =====
+function startGame() {
+  hideOverlay(); score=0; lives=3; updateHUD(); initLevel();
+  state='play'; lastTime=0;
+  if(animId) cancelAnimationFrame(animId);
+  animId = requestAnimationFrame(loop);
+}
+
+// ===== レベル初期化 =====
+function initLevel() {
+  const cw=W(), ch=H();
+  player = { x:cw/2-18, y:ch-48, w:36, h:20 };
+  shootCooldown=0; bullets=[]; invBullets=[];
+  invDir=1; invSpeed=BASE_INV_SPEED+(score/50000)*BASE_INV_SPEED;
+  invShootTimer=0; invShootInterval=1500;
+
+  // スケールファクタ（基準560px）
+  const sc = cw / 560;
+  invaders=[];
+  for(let r=0;r<5;r++) for(let c=0;c<11;c++)
+    invaders.push({
+      x:(60+c*44)*sc, y:(40+r*36)*sc,
+      w:28*sc, h:18*sc, alive:true, row:r, sc
+    });
+
+  barriers=[];
+  for(let b=0;b<4;b++){
+    const bx=(60+b*120)*sc, by=ch-90*sc, cells=[];
+    for(let row=0;row<4;row++) for(let col=0;col<8;col++){
+      if(row===0&&(col===0||col===7)) continue;
+      cells.push({x:bx+col*8*sc, y:by+row*8*sc, s:7*sc, alive:true});
+    }
+    barriers.push(cells);
+  }
+}
+
+// ===== 描画関数 =====
+function drawInvader(x,y,sc,row){
+  const s=sc;
+  ctx.fillStyle=row<1?'#7cf':'#6f6';
+  if(row<1){
+    ctx.fillRect(x+8*s,y,12*s,4*s); ctx.fillRect(x+4*s,y+4*s,20*s,4*s);
+    ctx.fillRect(x,y+8*s,28*s,6*s); ctx.fillRect(x+4*s,y+14*s,6*s,4*s); ctx.fillRect(x+18*s,y+14*s,6*s,4*s);
+    ctx.clearRect(x+10*s,y+10*s,4*s,4*s); ctx.clearRect(x+14*s,y+10*s,4*s,4*s);
+  } else if(row<3){
+    ctx.fillRect(x+6*s,y,16*s,4*s); ctx.fillRect(x+2*s,y+4*s,24*s,4*s);
+    ctx.fillRect(x,y+8*s,28*s,6*s); ctx.fillRect(x,y+14*s,8*s,4*s); ctx.fillRect(x+20*s,y+14*s,8*s,4*s);
+    ctx.clearRect(x+8*s,y+10*s,4*s,4*s); ctx.clearRect(x+16*s,y+10*s,4*s,4*s);
+  } else {
+    ctx.fillRect(x+4*s,y,20*s,4*s); ctx.fillRect(x+2*s,y+4*s,24*s,4*s);
+    ctx.fillRect(x,y+8*s,28*s,8*s); ctx.fillRect(x+4*s,y+16*s,6*s,4*s); ctx.fillRect(x+18*s,y+16*s,6*s,4*s);
+    ctx.fillRect(x+2*s,y+10*s,4*s,4*s); ctx.fillRect(x+22*s,y+10*s,4*s,4*s);
+  }
+}
+
+function drawPlayer(p){
+  ctx.fillStyle='#4af';
+  ctx.fillRect(p.x+14,p.y,8,6); ctx.fillRect(p.x+8,p.y+6,20,6); ctx.fillRect(p.x,p.y+12,36,8);
+  ctx.fillStyle='#7cf'; ctx.fillRect(p.x+14,p.y+2,8,2);
+}
+
+function updateHUD(){
+  document.getElementById('score').textContent=score;
+  document.getElementById('hi').textContent=hiScore;
+  document.getElementById('lives').textContent=lives;
+}
+
+// ===== メインループ =====
+function loop(timestamp){
+  animId=requestAnimationFrame(loop);
+  if(lastTime===0) lastTime=timestamp;
+  let delta=Math.min(timestamp-lastTime,100);
+  lastTime=timestamp;
+  const cw=W(), ch=H();
+  ctx.clearRect(0,0,cw,ch);
+  if(state!=='play') return;
+
+  // プレイヤー移動（キーボード or タッチ）
+  if(keys['ArrowLeft']  || touchState.left)  player.x=Math.max(0,     player.x-PLAYER_SPEED*delta);
+  if(keys['ArrowRight'] || touchState.right) player.x=Math.min(cw-player.w, player.x+PLAYER_SPEED*delta);
+
+  if(shootCooldown>0) shootCooldown-=delta;
+  if((keys['Space'] || touchState.fire) && shootCooldown<=0){
+    bullets.push({x:player.x+player.w/2-2, y:player.y, w:4, h:10});
+    shootCooldown=SHOOT_COOLDOWN;
+  }
+
+  const alive=invaders.filter(i=>i.alive);
+  if(alive.length===0){ initLevel(); return; }
+
+  let hitEdge=false;
+  alive.forEach(i=>{
+    i.x+=invDir*invSpeed*delta;
+    if(i.x<=4||i.x+i.w>=cw-4) hitEdge=true;
+  });
+  if(hitEdge){
+    invDir*=-1; alive.forEach(i=>i.y+=16*i.sc);
+    invSpeed=Math.min(invSpeed*1.08, 0.8/16.67);
+  }
+
+  invShootTimer+=delta;
+  if(invShootTimer>=invShootInterval){
+    invShootTimer=0;
+    invShootInterval=Math.max(400,1500-(55-alive.length)*20);
+    const s=alive[Math.floor(Math.random()*alive.length)];
+    invBullets.push({x:s.x+s.w/2-2, y:s.y+s.h, w:4, h:12});
+  }
+
+  bullets    = bullets.filter(b=>{ b.y-=BULLET_SPEED*delta;    return b.y>0; });
+  invBullets = invBullets.filter(b=>{ b.y+=INVBULLET_SPEED*delta; return b.y<ch; });
+
+  // 当たり判定：プレイヤー弾
+  bullets.forEach((b,bi)=>{
+    invaders.forEach(inv=>{
+      if(!inv.alive) return;
+      if(b.x<inv.x+inv.w&&b.x+b.w>inv.x&&b.y<inv.y+inv.h&&b.y+b.h>inv.y){
+        inv.alive=false; bullets.splice(bi,1);
+        score+=(4-Math.floor(inv.row/1.4))*10;
+        if(score>hiScore) hiScore=score;
+        updateHUD();
+      }
+    });
+    barriers.forEach(cells=>cells.forEach(c=>{
+      if(!c.alive) return;
+      if(b.x<c.x+c.s&&b.x+b.w>c.x&&b.y<c.y+c.s&&b.y+b.h>c.y){c.alive=false;bullets.splice(bi,1);}
+    }));
+  });
+
+  // 当たり判定：敵弾
+  invBullets.forEach((b,bi)=>{
+    if(b.x<player.x+player.w&&b.x+b.w>player.x&&b.y<player.y+player.h&&b.y+b.h>player.y){
+      invBullets.splice(bi,1); lives--; updateHUD();
+      if(lives<=0){
+        state='over';
+        showOverlay('GAME OVER','gameover','Score: '+score+'  Best: '+hiScore,'','[ RETRY ]');
+        return;
+      }
+    }
+    barriers.forEach(cells=>cells.forEach(c=>{
+      if(!c.alive) return;
+      if(b.x<c.x+c.s&&b.x+b.w>c.x&&b.y<c.y+c.s&&b.y+b.h>c.y){c.alive=false;invBullets.splice(bi,1);}
+    }));
+  });
+
+  // 敵がプレイヤーラインに到達
+  alive.forEach(i=>{
+    if(i.y+i.h>=player.y){
+      state='over';
+      showOverlay('GAME OVER','gameover','Score: '+score+'  Best: '+hiScore,'','[ RETRY ]');
+    }
+  });
+
+  // 描画
+  barriers.forEach(cells=>cells.forEach(c=>{
+    if(c.alive){ctx.fillStyle='#2a8';ctx.fillRect(c.x,c.y,c.s,c.s);}
+  }));
+  invaders.forEach(i=>{ if(i.alive) drawInvader(i.x,i.y,i.sc,i.row); });
+  drawPlayer(player);
+  bullets.forEach(b=>{ ctx.fillStyle='#4af'; ctx.fillRect(b.x,b.y,b.w,b.h); });
+  invBullets.forEach(b=>{ ctx.fillStyle='#f64'; ctx.fillRect(b.x,b.y,b.w,b.h); });
+}
+</script>
+</body>
+</html>
