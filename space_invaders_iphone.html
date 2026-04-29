@@ -221,8 +221,17 @@ resizeCanvas();
 function scheduleResize() {
   clearTimeout(resizeTimer);
   resizeTimer = setTimeout(() => {
+    const oldW = canvasW;
+    const oldH = canvasH;
     resizeCanvas();
-    if(state==='play') initLevel();
+    const widthChanged = Math.abs(canvasW - oldW) > 4;
+    if(state==='play' && widthChanged) {
+      initLevel();
+    } else if(state==='play' && player) {
+      const dy = canvasH - oldH;
+      player.y = canvasH - 48;
+      barriers.forEach(cells=>cells.forEach(c=>{ c.y+=dy; }));
+    }
   }, 80);
 }
 window.addEventListener('resize', scheduleResize);
@@ -417,16 +426,20 @@ function loop(timestamp){
   const alive=invaders.filter(i=>i.alive);
   if(alive.length===0){ initLevel(); return; }
 
-  let hitEdge=false;
-  alive.forEach(i=>{
-    i.x+=invDir*invSpeed*delta;
-    if(i.x<=4||i.x+i.w>=cw-4) hitEdge=true;
-  });
-  if(hitEdge){
-    const left = Math.min(...alive.map(i=>i.x));
-    const right = Math.max(...alive.map(i=>i.x+i.w));
-    const edgeFix = left < 4 ? 4-left : right > cw-4 ? (cw-4)-right : 0;
-    invDir*=-1; alive.forEach(i=>{ i.x+=edgeFix; i.y+=16*i.sc; });
+  const left = Math.min(...alive.map(i=>i.x));
+  const right = Math.max(...alive.map(i=>i.x+i.w));
+  let step = invDir*invSpeed*delta;
+  let drop = false;
+  if(step > 0 && right + step >= cw-4) {
+    step = (cw-4) - right;
+    drop = true;
+  } else if(step < 0 && left + step <= 4) {
+    step = 4 - left;
+    drop = true;
+  }
+  alive.forEach(i=>{ i.x+=step; });
+  if(drop){
+    invDir*=-1; alive.forEach(i=>{ i.y+=12*i.sc; });
     invSpeed=Math.min(invSpeed*1.08, 0.8/16.67);
   }
 
