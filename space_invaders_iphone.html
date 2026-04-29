@@ -352,7 +352,9 @@ function initLevel() {
 
   barriers=[];
   for(let b=0;b<4;b++){
-    const bx=(60+b*120)*sc, by=ch-90*sc, cells=[];
+    const barrierH = 3*8*sc + 7*sc;
+    const barrierGap = Math.max(12, 18*sc);
+    const bx=(60+b*120)*sc, by=player.y-barrierGap-barrierH, cells=[];
     for(let row=0;row<4;row++) for(let col=0;col<8;col++){
       if(row===0&&(col===0||col===7)) continue;
       cells.push({x:bx+col*8*sc, y:by+row*8*sc, s:7*sc, alive:true});
@@ -421,7 +423,10 @@ function loop(timestamp){
     if(i.x<=4||i.x+i.w>=cw-4) hitEdge=true;
   });
   if(hitEdge){
-    invDir*=-1; alive.forEach(i=>i.y+=16*i.sc);
+    const left = Math.min(...alive.map(i=>i.x));
+    const right = Math.max(...alive.map(i=>i.x+i.w));
+    const edgeFix = left < 4 ? 4-left : right > cw-4 ? (cw-4)-right : 0;
+    invDir*=-1; alive.forEach(i=>{ i.x+=edgeFix; i.y+=16*i.sc; });
     invSpeed=Math.min(invSpeed*1.08, 0.8/16.67);
   }
 
