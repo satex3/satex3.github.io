@@ -1,0 +1,357 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>360 Degree Invader</title>
+    <style>
+        body {
+            margin: 0;
+            overflow: hidden;
+            background-color: #111;
+            color: white;
+            font-family: Arial, sans-serif;
+        }
+        canvas {
+            display: block;
+        }
+        #ui {
+            position: absolute;
+            top: 10px;
+            left: 10px;
+            pointer-events: none;
+            font-size: 24px;
+        }
+        #game-over {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            text-align: center;
+            display: none;
+            pointer-events: auto;
+        }
+        button {
+            padding: 10px 20px;
+            font-size: 18px;
+            cursor: pointer;
+        }
+    </style>
+</head>
+<body>
+    <div id="ui">Score: <span id="score">0</span></div>
+    <div id="game-over">
+        <h1>GAME OVER</h1>
+        <p>Final Score: <span id="final-score">0</span></p>
+        <button onclick="resetGame()">Play Again</button>
+    </div>
+    <canvas id="gameCanvas"></canvas>
+
+    <script>
+        const canvas = document.getElementById('gameCanvas');
+        const ctx = canvas.getContext('2d');
+        const scoreElement = document.getElementById('score');
+        const finalScoreElement = document.getElementById('final-score');
+        const gameOverElement = document.getElementById('game-over');
+
+        let score = 0;
+        let gameActive = true;
+        let player;
+        let bullets = [];
+        let enemies = [];
+        let particles = [];
+        let mousePos = { x: 0, y: 0 };
+
+        // Resize canvas
+        function resize() {
+            canvas.width = window.innerWidth;
+            canvas.height = window.innerHeight;
+        }
+        window.addEventListener('resize', resize);
+        resize();
+
+        // Mouse move
+        window.addEventListener('mousemove', (e) => {
+            mousePos.x = e.clientX;
+            mousePos.y = e.clientY;
+        });
+
+        // Space key
+        window.addEventListener('keydown', (e) => {
+            if (e.code === 'Space') {
+                e.preventDefault(); // Prevent scrolling
+                if (gameActive) {
+                    player.shoot();
+                }
+            }
+        });
+
+        class Player {
+            constructor(x, y) {
+                this.x = x;
+                this.y = y;
+                this.radius = 20;
+                this.angle = 0;
+            }
+
+            draw() {
+                ctx.save();
+                ctx.translate(this.x, this.y);
+                ctx.rotate(this.angle);
+
+                // Draw Red Plastic Bottle Shape (oriented towards +X)
+                ctx.fillStyle = 'red';
+                
+                // Bottle Body
+                ctx.fillRect(-10, -15, 20, 30);
+                
+                // Bottle Neck
+                ctx.fillRect(10, -5, 5, 10);
+                
+                // Bottle Cap
+                ctx.fillStyle = 'darkred';
+                ctx.fillRect(15, -6, 5, 12);
+
+                ctx.restore();
+            }
+
+            update() {
+                this.angle = Math.atan2(mousePos.y - this.y, mousePos.x - this.x);
+            }
+
+            shoot() {
+                const bulletSpeed = 7;
+                // Fire from the cap (at x = 20)
+                bullets.push(new Bullet(
+                    this.x + Math.cos(this.angle) * 20,
+                    this.y + Math.sin(this.angle) * 20,
+                    this.angle,
+                    bulletSpeed
+                ));
+            }
+        }
+
+        class Bullet {
+            constructor(x, y, angle, speed) {
+                this.x = x;
+                this.y = y;
+                this.angle = angle;
+                this.speed = speed;
+                this.radius = 4;
+            }
+
+            draw() {
+                ctx.beginPath();
+                ctx.arc(this.x, this.y, this.radius, 0, Math.PI * 2);
+                ctx.fillStyle = 'yellow';
+                ctx.fill();
+                ctx.closePath();
+            }
+
+            update() {
+                this.x += Math.cos(this.angle) * this.speed;
+                this.y += Math.sin(this.angle) * this.speed;
+            }
+        }
+
+        class Enemy {
+            constructor(x, y, targetX, targetY) {
+                this.x = x;
+                this.y = y;
+                const angle = Math.atan2(targetY - y, targetX - x);
+                this.speed = 1.5 + Math.random() * 1;
+                this.angle = angle;
+                this.radius = 15;
+            }
+
+            draw() {
+                ctx.save();
+                ctx.translate(this.x, this.y);
+
+                // 1. Draw Hexagonal Outer Shell (Dark Metallic)
+                ctx.beginPath();
+                for (let i = 0; i < 6; i++) {
+                    const ang = (i * Math.PI) / 3;
+                    const px = Math.cos(ang) * this.radius * 1.2;
+                    const py = Math.sin(ang) * this.radius * 1.2;
+                    if (i === 0) ctx.moveTo(px, py);
+                    else ctx.lineTo(px, py);
+                }
+                ctx.closePath();
+                const shellGradient = ctx.createRadialGradient(0, 0, 0, 0, 0, this.radius * 1.2);
+                shellGradient.addColorStop(0, '#444');
+                shellGradient.addColorStop(1, '#111');
+                ctx.fillStyle = shellGradient;
+                ctx.fill();
+                ctx.strokeStyle = '#555';
+                ctx.lineWidth = 2;
+                ctx.stroke();
+
+                // 2. Draw Glowing Sensor Lines (Cyan)
+                ctx.strokeStyle = 'rgba(0, 255, 255, 0.4)';
+                ctx.lineWidth = 1;
+                for (let i = 0; i < 6; i++) {
+                    const ang = (i * Math.PI) / 3;
+                    ctx.beginPath();
+                    ctx.moveTo(Math.cos(ang) * this.radius * 0.7, Math.sin(ang) * this.radius * 0.7);
+                    ctx.lineTo(Math.cos(ang) * this.radius * 1.1, Math.sin(ang) * this.radius * 1.1);
+                    ctx.stroke();
+                }
+
+                // 3. Draw Energy Core (Cyan Glow)
+                const coreGradient = ctx.createRadialGradient(0, 0, 0, 0, 0, this.radius * 0.6);
+                coreGradient.addColorStop(0, '#fff');
+                coreGradient.addColorStop(0.5, '#00ffff');
+                coreGradient.addColorStop(1, 'rgba(0, 255, 255, 0)');
+                
+                ctx.beginPath();
+                ctx.arc(0, 0, this.radius * 0.6, 0, Math.PI * 2);
+                ctx.fillStyle = coreGradient;
+                ctx.fill();
+
+                ctx.restore();
+            }
+
+            update() {
+                this.x += Math.cos(this.angle) * this.speed;
+                this.y += Math.sin(this.angle) * this.speed;
+            }
+        }
+
+        class Particle {
+            constructor(x, y, color) {
+                this.x = x;
+                this.y = y;
+                this.color = color;
+                this.size = Math.random() * 3 + 1;
+                this.speedX = (Math.random() - 0.5) * 5;
+                this.speedY = (Math.random() - 0.5) * 5;
+                this.life = 1.0;
+            }
+
+            draw() {
+                ctx.globalAlpha = this.life;
+                ctx.fillStyle = this.color;
+                ctx.fillRect(this.x, this.y, this.size, this.size);
+                ctx.globalAlpha = 1.0;
+            }
+
+            update() {
+                this.x += this.speedX;
+                this.y += this.speedY;
+                this.life -= 0.02;
+            }
+        }
+
+        function spawnEnemy() {
+            if (!gameActive) return;
+
+            let x, y;
+            const side = Math.floor(Math.random() * 4);
+            if (side === 0) { // Top
+                x = Math.random() * canvas.width;
+                y = -30;
+            } else if (side === 1) { // Right
+                x = canvas.width + 30;
+                y = Math.random() * canvas.height;
+            } else if (side === 2) { // Bottom
+                x = Math.random() * canvas.width;
+                y = canvas.height + 30;
+            } else { // Left
+                x = -30;
+                y = Math.random() * canvas.height;
+            }
+
+            enemies.push(new Enemy(x, y, canvas.width / 2, canvas.height / 2));
+            
+            // Schedule next spawn
+            setTimeout(spawnEnemy, Math.max(500, 2000 - score * 10));
+        }
+
+        function resetGame() {
+            score = 0;
+            scoreElement.innerText = score;
+            gameActive = true;
+            player = new Player(canvas.width / 2, canvas.height / 2);
+            bullets = [];
+            enemies = [];
+            particles = [];
+            gameOverElement.style.display = 'none';
+            spawnEnemy();
+            animate();
+        }
+
+        function animate() {
+            if (!gameActive) return;
+
+            ctx.fillStyle = 'rgba(17, 17, 17, 0.3)'; // Motion blur effect
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+            player.update();
+            player.draw();
+
+            // Bullets
+            for (let i = bullets.length - 1; i >= 0; i--) {
+                bullets[i].update();
+                bullets[i].draw();
+
+                // Remove off-screen bullets
+                if (bullets[i].x < 0 || bullets[i].x > canvas.width || 
+                    bullets[i].y < 0 || bullets[i].y > canvas.height) {
+                    bullets.splice(i, 1);
+                }
+            }
+
+            // Enemies
+            for (let i = enemies.length - 1; i >= 0; i--) {
+                enemies[i].update();
+                enemies[i].draw();
+
+                // Collision with Player
+                const distToPlayer = Math.hypot(enemies[i].x - player.x, enemies[i].y - player.y);
+                if (distToPlayer < enemies[i].radius + player.radius) {
+                    gameActive = false;
+                    gameOverElement.style.display = 'block';
+                    finalScoreElement.innerText = score;
+                }
+
+                // Collision with Bullets
+                for (let j = bullets.length - 1; j >= 0; j--) {
+                    const distToBullet = Math.hypot(enemies[i].x - bullets[j].x, enemies[i].y - bullets[j].y);
+                    if (distToBullet < enemies[i].radius + bullets[j].radius) {
+                        // Explosion particles
+                        for (let k = 0; k < 15; k++) {
+                            // Use cyan and white for the new enemy's explosion
+                            const color = Math.random() > 0.5 ? '#00ffff' : '#ffffff';
+                            particles.push(new Particle(enemies[i].x, enemies[i].y, color));
+                        }
+
+                        enemies.splice(i, 1);
+                        bullets.splice(j, 1);
+                        score += 10;
+                        scoreElement.innerText = score;
+                        break;
+                    }
+                }
+            }
+
+            // Particles
+            for (let i = particles.length - 1; i >= 0; i--) {
+                particles[i].update();
+                particles[i].draw();
+                if (particles[i].life <= 0) {
+                    particles.splice(i, 1);
+                }
+            }
+
+            requestAnimationFrame(animate);
+        }
+
+        // Start
+        player = new Player(canvas.width / 2, canvas.height / 2);
+        spawnEnemy();
+        animate();
+
+    </script>
+</body>
+</html>
